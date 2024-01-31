@@ -19,7 +19,7 @@
 #include <ngx_event_pipe.h>
 #include <ngx_http.h>
 
-ngx_module_t  ngx_http_socks_module;
+extern ngx_module_t  ngx_http_socks_module;
 
 typedef struct {
     ngx_array_t                    caches;  /* ngx_http_file_cache_t * */
@@ -130,7 +130,8 @@ typedef struct {
 } ngx_http_socks_ctx_t;
 
 
-ngx_int_t ngx_http_socks_upstream_cookie_variable(ngx_http_request_t *r,
+ngx_int_t
+ngx_http_socks_upstream_cookie_variable(ngx_http_request_t *r,
     ngx_http_variable_value_t *v, uintptr_t data);
 ngx_int_t ngx_http_socks_upstream_header_variable(ngx_http_request_t *r,
     ngx_http_variable_value_t *v, uintptr_t data);

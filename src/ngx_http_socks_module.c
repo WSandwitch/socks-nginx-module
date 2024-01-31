@@ -988,7 +988,7 @@ ngx_http_socks_create_request(ngx_http_request_t *r)
         loc_len = (r->valid_location && ctx->vars.uri.len) ?
                       slcf->location.len : 0;
 
-        if (r->quoted_uri || r->space_in_uri || r->internal) {
+        if (r->quoted_uri ||  r->internal) {
             escape = 2 * ngx_escape_uri(NULL, r->uri.data + loc_len,
                                         r->uri.len - loc_len, NGX_ESCAPE_URI);
         }
@@ -2218,21 +2218,15 @@ ngx_http_socks_add_x_forwarded_for_variable(ngx_http_request_t *r,
 {
     size_t             len;
     u_char            *p;
-    ngx_uint_t         i, n;
-    ngx_table_elt_t  **h;
+    ngx_str_t          header_value;
 
     v->valid = 1;
     v->no_cacheable = 0;
     v->not_found = 0;
 
-    n = r->headers_in.x_forwarded_for.nelts;
-    h = r->headers_in.x_forwarded_for.elts;
+    header_value = r->headers_in.x_forwarded_for->value;
 
-    len = 0;
-
-    for (i = 0; i < n; i++) {
-        len += h[i]->value.len + sizeof(", ") - 1;
-    }
+    len = header_value.len;
 
     if (len == 0) {
         v->len = r->connection->addr_text.len;
@@ -2250,10 +2244,7 @@ ngx_http_socks_add_x_forwarded_for_variable(ngx_http_request_t *r,
     v->len = len;
     v->data = p;
 
-    for (i = 0; i < n; i++) {
-        p = ngx_copy(p, h[i]->value.data, h[i]->value.len);
-        *p++ = ','; *p++ = ' ';
-    }
+    p = ngx_copy(p, header_value.data, header_value.len);
 
     ngx_memcpy(p, r->connection->addr_text.data, r->connection->addr_text.len);
 
@@ -3257,7 +3248,7 @@ ngx_http_socks_init_headers(ngx_conf_t *cf, ngx_http_socks_loc_conf_t *conf,
                 return NGX_ERROR;
             }
 
-            copy->code = (ngx_http_script_code_pt)
+            copy->code = (ngx_http_script_code_pt)(void*)
                                                  ngx_http_script_copy_len_code;
             copy->len = src[i].key.len + sizeof(": ") - 1
                         + src[i].value.len + sizeof(CRLF) - 1;
@@ -3292,7 +3283,7 @@ ngx_http_socks_init_headers(ngx_conf_t *cf, ngx_http_socks_loc_conf_t *conf,
                 return NGX_ERROR;
             }
 
-            copy->code = (ngx_http_script_code_pt)
+            copy->code = (ngx_http_script_code_pt)(void*)
                                                  ngx_http_script_copy_len_code;
             copy->len = src[i].key.len + sizeof(": ") - 1;
 
@@ -3333,7 +3324,7 @@ ngx_http_socks_init_headers(ngx_conf_t *cf, ngx_http_socks_loc_conf_t *conf,
                 return NGX_ERROR;
             }
 
-            copy->code = (ngx_http_script_code_pt)
+            copy->code = (ngx_http_script_code_pt)(void*)
                                                  ngx_http_script_copy_len_code;
             copy->len = sizeof(CRLF) - 1;
 
