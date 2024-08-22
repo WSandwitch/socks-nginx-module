@@ -149,10 +149,6 @@ static ngx_int_t ngx_http_socks_upstream_rewrite_set_cookie(ngx_http_request_t *
 static ngx_int_t ngx_http_socks_upstream_copy_allow_ranges(ngx_http_request_t *r,
     ngx_table_elt_t *h, ngx_uint_t offset);
 
-#if (NGX_HTTP_GZIP)
-static ngx_int_t ngx_http_socks_upstream_copy_content_encoding(ngx_http_request_t *r,
-    ngx_table_elt_t *h, ngx_uint_t offset);
-#endif
 
 static ngx_addr_t *ngx_http_socks_upstream_get_local(ngx_http_request_t *r,
     ngx_http_upstream_local_t *local);
@@ -214,7 +210,7 @@ ngx_http_upstream_header_t  ngx_http_socks_upstream_headers_in[] = {
 
     { ngx_string("Set-Cookie"),
                  ngx_http_socks_upstream_process_set_cookie,
-                 offsetof(ngx_http_upstream_headers_in_t, cookies),
+                 offsetof(ngx_http_upstream_headers_in_t, set_cookie),
                  ngx_http_socks_upstream_rewrite_set_cookie, 0, 1 },
 
     { ngx_string("Content-Disposition"),
@@ -230,13 +226,10 @@ ngx_http_upstream_header_t  ngx_http_socks_upstream_headers_in[] = {
                  ngx_http_socks_upstream_process_expires, 0,
                  ngx_http_socks_upstream_copy_header_line,
                  offsetof(ngx_http_headers_out_t, expires), 1 },
-
     { ngx_string("Accept-Ranges"),
-                 ngx_http_socks_upstream_process_header_line,
-                 offsetof(ngx_http_upstream_headers_in_t, accept_ranges),
+                 ngx_http_socks_upstream_ignore_header_line, 0,
                  ngx_http_socks_upstream_copy_allow_ranges,
                  offsetof(ngx_http_headers_out_t, accept_ranges), 1 },
-
     { ngx_string("Connection"),
                  ngx_http_socks_upstream_process_connection, 0,
                  ngx_http_socks_upstream_ignore_header_line, 0, 0 },
@@ -277,13 +270,10 @@ ngx_http_upstream_header_t  ngx_http_socks_upstream_headers_in[] = {
     { ngx_string("Transfer-Encoding"),
                  ngx_http_upstream_process_transfer_encoding, 0,
                  ngx_http_socks_upstream_ignore_header_line, 0, 0 },
-
-#if (NGX_HTTP_GZIP)
     { ngx_string("Content-Encoding"),
-                 ngx_http_socks_upstream_process_header_line,
-                 offsetof(ngx_http_upstream_headers_in_t, content_encoding),
-                 ngx_http_socks_upstream_copy_content_encoding, 0, 0 },
-#endif
+                 ngx_http_socks_upstream_ignore_header_line, 0,
+                 ngx_http_socks_upstream_copy_header_line,
+                 offsetof(ngx_http_headers_out_t, content_encoding), 0 },
 
     { ngx_null_string, NULL, 0, NULL, 0, 0 }
 };
@@ -4001,26 +3991,16 @@ static ngx_int_t
 ngx_http_socks_upstream_process_set_cookie(ngx_http_request_t *r, ngx_table_elt_t *h,
     ngx_uint_t offset)
 {
-    ngx_array_t           *pa;
     ngx_table_elt_t      **ph;
     ngx_http_upstream_t   *u;
 
     u = r->upstream;
-    pa = &u->headers_in.cookies;
+    ph = &u->headers_in.set_cookie;
 
-    if (pa->elts == NULL) {
-        if (ngx_array_init(pa, r->pool, 1, sizeof(ngx_table_elt_t *)) != NGX_OK)
-        {
-            return NGX_ERROR;
-        }
-    }
-
-    ph = ngx_array_push(pa);
-    if (ph == NULL) {
-        return NGX_ERROR;
-    }
+    while (*ph) { ph = &(*ph)->next; }
 
     *ph = h;
+    h->next = NULL;
 
 #if (NGX_HTTP_CACHE)
     if (!(u->conf->ignore_headers & NGX_HTTP_UPSTREAM_IGN_SET_COOKIE)) {
@@ -4036,26 +4016,16 @@ static ngx_int_t
 ngx_http_socks_upstream_process_cache_control(ngx_http_request_t *r,
     ngx_table_elt_t *h, ngx_uint_t offset)
 {
-    ngx_array_t          *pa;
-    ngx_table_elt_t     **ph;
-    ngx_http_upstream_t  *u;
+    ngx_table_elt_t      **ph;
+    ngx_http_upstream_t   *u;
 
     u = r->upstream;
-    pa = &u->headers_in.cache_control;
+    ph = &u->headers_in.cache_control;
 
-    if (pa->elts == NULL) {
-       if (ngx_array_init(pa, r->pool, 2, sizeof(ngx_table_elt_t *)) != NGX_OK)
-       {
-           return NGX_ERROR;
-       }
-    }
-
-    ph = ngx_array_push(pa);
-    if (ph == NULL) {
-        return NGX_ERROR;
-    }
+    while (*ph) { ph = &(*ph)->next; }
 
     *ph = h;
+    h->next = NULL;
 
 #if (NGX_HTTP_CACHE)
     {
@@ -4070,18 +4040,18 @@ ngx_http_socks_upstream_process_cache_control(ngx_http_request_t *r,
         return NGX_OK;
     }
 
-    if (r->cache->valid_sec != 0 && u->headers_in.x_accel_expires != NULL) {
-        return NGX_OK;
-    }
-
     start = h->value.data;
     last = start + h->value.len;
+
+    if (r->cache->valid_sec != 0 && u->headers_in.x_accel_expires != NULL) {
+        goto extensions;
+    }
 
     if (ngx_strlcasestrn(start, last, (u_char *) "no-cache", 8 - 1) != NULL
         || ngx_strlcasestrn(start, last, (u_char *) "no-store", 8 - 1) != NULL
         || ngx_strlcasestrn(start, last, (u_char *) "private", 7 - 1) != NULL)
     {
-        u->cacheable = 0;
+        u->headers_in.no_cache = 1;
         return NGX_OK;
     }
 
@@ -4093,37 +4063,85 @@ ngx_http_socks_upstream_process_cache_control(ngx_http_request_t *r,
         offset = 8;
     }
 
-    if (p == NULL) {
-        return NGX_OK;
-    }
+    if (p) {
+        n = 0;
 
-    n = 0;
+        for (p += offset; p < last; p++) {
+            if (*p == ',' || *p == ';' || *p == ' ') {
+                break;
+            }
 
-    for (p += offset; p < last; p++) {
-        if (*p == ',' || *p == ';' || *p == ' ') {
-            break;
+            if (*p >= '0' && *p <= '9') {
+                n = n * 10 + (*p - '0');
+                continue;
+            }
+
+            u->cacheable = 0;
+            return NGX_OK;
         }
 
-        if (*p >= '0' && *p <= '9') {
-            n = n * 10 + *p - '0';
-            continue;
+        if (n == 0) {
+            u->headers_in.no_cache = 1;
+            return NGX_OK;
         }
 
-        u->cacheable = 0;
-        return NGX_OK;
+        r->cache->valid_sec = ngx_time() + n;
+        u->headers_in.expired = 0;
     }
 
-    if (n == 0) {
-        u->cacheable = 0;
-        return NGX_OK;
+extensions:
+
+    p = ngx_strlcasestrn(start, last, (u_char *) "stale-while-revalidate=",
+                         23 - 1);
+
+    if (p) {
+        n = 0;
+
+        for (p += 23; p < last; p++) {
+            if (*p == ',' || *p == ';' || *p == ' ') {
+                break;
+            }
+
+            if (*p >= '0' && *p <= '9') {
+                n = n * 10 + (*p - '0');
+                continue;
+            }
+
+            u->cacheable = 0;
+            return NGX_OK;
+        }
+
+        r->cache->updating_sec = n;
+        r->cache->error_sec = n;
     }
 
-    r->cache->valid_sec = ngx_time() + n;
+    p = ngx_strlcasestrn(start, last, (u_char *) "stale-if-error=", 15 - 1);
+
+    if (p) {
+        n = 0;
+
+        for (p += 15; p < last; p++) {
+            if (*p == ',' || *p == ';' || *p == ' ') {
+                break;
+            }
+
+            if (*p >= '0' && *p <= '9') {
+                n = n * 10 + (*p - '0');
+                continue;
+            }
+
+            u->cacheable = 0;
+            return NGX_OK;
+        }
+
+        r->cache->error_sec = n;
+    }
     }
 #endif
 
     return NGX_OK;
 }
+
 
 
 static ngx_int_t
@@ -4379,6 +4397,8 @@ ngx_http_socks_upstream_copy_header_line(ngx_http_request_t *r, ngx_table_elt_t 
     }
 
     *ho = *h;
+    ho->next = NULL;
+
 
     if (offset) {
         ph = (ngx_table_elt_t **) ((char *) &r->headers_out + offset);
@@ -4393,22 +4413,7 @@ static ngx_int_t
 ngx_http_socks_upstream_copy_multi_header_lines(ngx_http_request_t *r,
     ngx_table_elt_t *h, ngx_uint_t offset)
 {
-    ngx_array_t      *pa;
     ngx_table_elt_t  *ho, **ph;
-
-    pa = (ngx_array_t *) ((char *) &r->headers_out + offset);
-
-    if (pa->elts == NULL) {
-        if (ngx_array_init(pa, r->pool, 2, sizeof(ngx_table_elt_t *)) != NGX_OK)
-        {
-            return NGX_ERROR;
-        }
-    }
-
-    ph = ngx_array_push(pa);
-    if (ph == NULL) {
-        return NGX_ERROR;
-    }
 
     ho = ngx_list_push(&r->headers_out.headers);
     if (ho == NULL) {
@@ -4416,7 +4421,13 @@ ngx_http_socks_upstream_copy_multi_header_lines(ngx_http_request_t *r,
     }
 
     *ho = *h;
+
+    ph = (ngx_table_elt_t **) ((char *) &r->headers_out + offset);
+
+    while (*ph) { ph = &(*ph)->next; }
+
     *ph = ho;
+    ho->next = NULL;
 
     return NGX_OK;
 }
@@ -4486,9 +4497,12 @@ ngx_http_socks_upstream_copy_last_modified(ngx_http_request_t *r, ngx_table_elt_
     }
 
     *ho = *h;
+    ho->next = NULL;
+
 
     r->headers_out.last_modified = ho;
-
+    r->headers_out.last_modified_time =
+                                    r->upstream->headers_in.last_modified_time;
 #if (NGX_HTTP_CACHE)
 
     if (r->upstream->cacheable) {
@@ -4515,6 +4529,7 @@ ngx_http_socks_upstream_rewrite_location(ngx_http_request_t *r, ngx_table_elt_t 
     }
 
     *ho = *h;
+    ho->next = NULL;
 
     if (r->upstream->rewrite_redirect) {
         rc = r->upstream->rewrite_redirect(r, ho, 0);
@@ -4560,6 +4575,8 @@ ngx_http_socks_upstream_rewrite_refresh(ngx_http_request_t *r, ngx_table_elt_t *
     }
 
     *ho = *h;
+    ho->next = NULL;
+
 
     if (r->upstream->rewrite_redirect) {
 
@@ -4605,6 +4622,8 @@ ngx_http_socks_upstream_rewrite_set_cookie(ngx_http_request_t *r, ngx_table_elt_
     }
 
     *ho = *h;
+    ho->next = NULL;
+
 
     if (r->upstream->rewrite_cookie) {
         rc = r->upstream->rewrite_cookie(r, ho);
@@ -4625,7 +4644,6 @@ ngx_http_socks_upstream_rewrite_set_cookie(ngx_http_request_t *r, ngx_table_elt_
 
     return NGX_OK;
 }
-
 
 static ngx_int_t
 ngx_http_socks_upstream_copy_allow_ranges(ngx_http_request_t *r,
@@ -4658,49 +4676,30 @@ ngx_http_socks_upstream_copy_allow_ranges(ngx_http_request_t *r,
     }
 
     *ho = *h;
+    ho->next = NULL;
 
     r->headers_out.accept_ranges = ho;
 
     return NGX_OK;
 }
 
-
-#if (NGX_HTTP_GZIP)
-
-static ngx_int_t
-ngx_http_socks_upstream_copy_content_encoding(ngx_http_request_t *r,
-    ngx_table_elt_t *h, ngx_uint_t offset)
-{
-    ngx_table_elt_t  *ho;
-
-    ho = ngx_list_push(&r->headers_out.headers);
-    if (ho == NULL) {
-        return NGX_ERROR;
-    }
-
-    *ho = *h;
-
-    r->headers_out.content_encoding = ho;
-
-    return NGX_OK;
-}
-
-#endif
-
 ngx_int_t
-ngx_http_socks_upstream_header_variable(ngx_http_request_t *r,
-    ngx_http_variable_value_t *v, uintptr_t data)
+ngx_http_socks_upstream_header_variable(ngx_http_request_t *request,
+                                        ngx_http_variable_value_t *variable_value,
+                                        uintptr_t data)
 {
-    if (r->upstream == NULL) {
-        v->not_found = 1;
+    ngx_str_t *header_name = (ngx_str_t *) data;
+
+    if (request->upstream == NULL) {
+        variable_value->not_found = 1;
         return NGX_OK;
     }
 
-    return ngx_http_variable_unknown_header(v, (ngx_str_t *) data,
-                                         &r->upstream->headers_in.headers.part,
-                                         sizeof("upstream_http_") - 1);
+    // Assuming headers are still stored in a list, we pass the part of the list where headers are stored
+    return ngx_http_variable_unknown_header(request, variable_value, header_name,
+                                            &request->upstream->headers_in.headers.part,
+                                            sizeof("upstream_http_") - 1);
 }
-
 
 ngx_int_t
 ngx_http_socks_upstream_cookie_variable(ngx_http_request_t *r,
@@ -4718,9 +4717,9 @@ ngx_http_socks_upstream_cookie_variable(ngx_http_request_t *r,
     s.len = name->len - (sizeof("upstream_cookie_") - 1);
     s.data = name->data + sizeof("upstream_cookie_") - 1;
 
-    if (ngx_http_parse_set_cookie_lines(&r->upstream->headers_in.cookies,
+    if (ngx_http_parse_set_cookie_lines(r, r->upstream->headers_in.set_cookie,
                                         &s, &cookie)
-        == NGX_DECLINED)
+        == NULL)
     {
         v->not_found = 1;
         return NGX_OK;
@@ -4734,6 +4733,7 @@ ngx_http_socks_upstream_cookie_variable(ngx_http_request_t *r,
 
     return NGX_OK;
 }
+
 
 
 ngx_http_upstream_srv_conf_t *

@@ -4,17 +4,17 @@ An `nginx_http_proxy_module` fork with SOCKS5 support
 
 ## Building
 
-nginx >= **1.9.1** is supported.
+nginx >= **1.24.0** is supported.
 
 ```bash
 # apt-get install git build-essential zlib1g-dev libpcre3 libpcre3-dev unzip
 
 $ git clone https://github.com/dannote/socks-nginx-module
-$ wget http://nginx.org/download/nginx-1.9.15.tar.gz
+$ wget http://nginx.org/download/nginx-1.24.0.tar.gz
 
-$ tar -xzvf nginx-1.9.15.tar.gz
+$ tar -xzvf nginx-1.24.0.tar.gz
 
-$ cd nginx-1.9.15
+$ cd nginx-1.24.0
 
 # See http://nginx.org/en/docs/configure.html for more configuration options
 $ ./configure --add-module=../socks-nginx-module
