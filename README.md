@@ -9,7 +9,7 @@ nginx >= **1.24.0** is supported.
 ```bash
 # apt-get install git build-essential zlib1g-dev libpcre3 libpcre3-dev unzip
 
-$ git clone https://github.com/dannote/socks-nginx-module
+$ git clone https://github.com/Wsandwitch/socks-nginx-module
 $ wget http://nginx.org/download/nginx-1.24.0.tar.gz
 
 $ tar -xzvf nginx-1.24.0.tar.gz
